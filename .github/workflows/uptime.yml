@@ -1,0 +1,95 @@
+name: Uptime — morellinas.com
+
+on:
+  schedule:
+    # Every 5 minutes (GitHub's minimum). Scheduled runs can lag 10–20 min under load.
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: uptime-morellinas
+  cancel-in-progress: false
+
+jobs:
+  check:
+    name: morellinas.com is reachable
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      URL: https://morellinas.com/
+      # A string that must appear in the HTML. Guards against the server serving
+      # an empty or broken 200 — "up" should mean "actually serving the site".
+      EXPECT_TEXT: Morellina
+      ATTEMPTS: '3'
+      DELAY: '20'
+    steps:
+      - name: Probe site
+        run: |
+          set -uo pipefail
+
+          host=$(printf '%s' "$URL" | sed -E 's#^[a-z]+://##; s#[:/].*$##')
+          reason=""
+
+          probe() {
+            local body code size
+            body=$(mktemp)
+            code=$(curl -sS -L --max-time 20 -o "$body" -w '%{http_code}' "$URL") || code="000"
+            size=$(wc -c < "$body" | tr -d ' ')
+
+            if [ "$code" = "000" ]; then
+              echo "  no HTTP response (connection failed or timed out)"
+              reason="conn"; rm -f "$body"; return 1
+            fi
+            if [ "$code" != "200" ]; then
+              echo "  HTTP $code (expected 200), ${size} bytes"
+              reason="http"; rm -f "$body"; return 1
+            fi
+            if ! grep -q "$EXPECT_TEXT" "$body"; then
+              echo "  HTTP 200 but body is missing '$EXPECT_TEXT' — serving a broken page (${size} bytes)"
+              reason="content"; rm -f "$body"; return 1
+            fi
+
+            echo "  HTTP 200, ${size} bytes, content marker present"
+            reason=""; rm -f "$body"; return 0
+          }
+
+          for i in $(seq 1 "$ATTEMPTS"); do
+            echo "Attempt $i/$ATTEMPTS → $URL"
+            if probe; then
+              echo "SITE IS UP"
+              exit 0
+            fi
+            if [ "$i" -lt "$ATTEMPTS" ]; then
+              echo "  retrying in ${DELAY}s..."
+              sleep "$DELAY"
+            fi
+          done
+
+          # Only probe connectivity when the failure could plausibly be network-level.
+          # A wrong-content or non-200 response already proves the server answered.
+          echo "----- diagnostics -----"
+          case "$reason" in
+            conn)
+              echo "DNS:"
+              python3 -c "import socket,sys;print('  ${host} resolves to', socket.gethostbyname('${host}'))" 2>/dev/null \
+                || echo "  DNS RESOLUTION FAILED — the name did not resolve"
+              echo "TCP :443:"
+              python3 -c "import socket;socket.create_connection(('${host}',443),10);print('  port 443 accepts connections — host is up, TLS or the web server is broken')" 2>/dev/null \
+                || echo "  CANNOT CONNECT on 443 — server or network is down"
+              ;;
+            http)
+              echo "  The server responded, but not with 200. The web server is"
+              echo "  running; the vhost, document root, or an upstream is misconfigured."
+              ;;
+            content)
+              echo "  The server returned 200 without '${EXPECT_TEXT}' in the body."
+              echo "  The web server is serving, but the wrong or an empty document —"
+              echo "  suspect a bad deploy or an emptied document root."
+              ;;
+          esac
+
+          echo "::error title=morellinas.com is DOWN::Failed $ATTEMPTS consecutive checks over ~$(( (ATTEMPTS - 1) * DELAY ))s (cause: ${reason:-unknown}). See diagnostics in the log."
+          exit 1

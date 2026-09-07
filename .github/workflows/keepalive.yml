@@ -1,0 +1,27 @@
+name: Keepalive
+
+# GitHub disables scheduled workflows in a repo after 60 days with no commit
+# activity (it emails a warning first). This makes a tiny commit monthly so the
+# uptime check never silently stops running.
+
+on:
+  schedule:
+    - cron: '0 6 1 * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  touch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Bump heartbeat
+        run: |
+          date -u +'%Y-%m-%dT%H:%M:%SZ' > .keepalive
+          git config user.name  'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git add .keepalive
+          git diff --staged --quiet || git commit -m 'chore: keepalive'
+          git push
