@@ -41,3 +41,11 @@ therefore contains only the monitor: no site source, no credentials.
 Edit the `env:` block in `.github/workflows/uptime.yml` (`URL`, `EXPECT_TEXT`,
 `ATTEMPTS`, `DELAY`). Run it on demand from the **Actions** tab →
 *Uptime — morellinas.com* → **Run workflow**.
+
+## Testing the alert
+
+To confirm alert emails still reach you, run a drill: **Actions** →
+*Uptime — morellinas.com* → **Run workflow**, and set the `url` input to
+something guaranteed to fail (e.g. `https://morellinas.com/does-not-exist`).
+The run fails and GitHub emails you, without touching the scheduled checks.
+Leave the input blank to check the real site.

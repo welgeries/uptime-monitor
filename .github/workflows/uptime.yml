@@ -5,6 +5,11 @@ on:
     # Every 5 minutes (GitHub's minimum). Scheduled runs can lag 10–20 min under load.
     - cron: '*/5 * * * *'
   workflow_dispatch:
+    inputs:
+      url:
+        description: 'URL to check. Leave blank for the real site; set a bad URL to drill the alert email.'
+        required: false
+        default: ''
 
 permissions:
   contents: read
@@ -19,7 +24,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
-      URL: https://morellinas.com/
+      URL: ${{ inputs.url || 'https://morellinas.com/' }}
       # A string that must appear in the HTML. Guards against the server serving
       # an empty or broken 200 — "up" should mean "actually serving the site".
       EXPECT_TEXT: Morellina
